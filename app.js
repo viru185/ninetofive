@@ -49,18 +49,20 @@ document.addEventListener('DOMContentLoaded', () => {
 function cacheDom() {
   els.logInput = document.getElementById('logInput');
   els.hintStrip = document.getElementById('hintStrip');
-  els.metricsGrid = document.getElementById('metricsGrid');
+  els.summaryMessage = document.getElementById('summaryMessage');
+  els.insightGrid = document.getElementById('insightGrid');
+  els.expectedRow = document.getElementById('expectedRow');
+  els.segmentTrack = document.getElementById('segmentTrack');
+  els.progressValue = document.getElementById('progressValue');
+  els.progressBadges = document.getElementById('progressBadges');
+  els.swipeNote = document.getElementById('swipeNote');
   els.statusChips = document.getElementById('statusChips');
   els.timelineList = document.getElementById('timelineList');
   els.timelineInfo = document.getElementById('timelineInfo');
-  els.progressBar = document.getElementById('progressBar');
-  els.progressValue = document.getElementById('progressValue');
   els.dayLabel = document.getElementById('dayLabel');
-  els.summaryMessage = document.getElementById('summaryMessage');
-  els.expectedRow = document.getElementById('expectedRow');
   els.historySelect = document.getElementById('historySelect');
-  els.logInput.addEventListener('input', debounce(handleInputChange, 200));
 
+  els.logInput.addEventListener('input', debounce(handleInputChange, 200));
   els.pasteBtn = document.getElementById('pasteBtn');
   els.sampleBtn = document.getElementById('sampleBtn');
   els.clearBtn = document.getElementById('clearBtn');
@@ -88,7 +90,6 @@ function bindEvents() {
   });
 
   els.clearBtn.addEventListener('click', resetApp);
-
   els.copySummaryBtn.addEventListener('click', copySummary);
 
   els.historySelect.addEventListener('change', (event) => {
@@ -132,8 +133,9 @@ function processInput(raw, source = 'manual') {
 function analyze(raw) {
   const parseResult = parseRawInput(raw);
   const dayResult = restrictToSingleDay(parseResult.entries);
+  const firstInEntry = dayResult.entries.find((entry) => entry.type === 'in') || null;
   const segmentResult = buildSegments(dayResult.entries);
-  const metrics = buildMetrics(segmentResult.segments, dayResult.entries.length, segmentResult.ongoing);
+  const metrics = buildMetrics(segmentResult.segments, dayResult.entries.length, firstInEntry);
   const warnings = [...parseResult.warnings, ...dayResult.warnings, ...segmentResult.warnings];
   const hints = metrics ? [`Parsed ${metrics.eventCount} punch${metrics.eventCount === 1 ? '' : 'es'}.`] : ['No valid punches detected.'];
   return {
@@ -163,7 +165,6 @@ function parseRawInput(raw) {
   });
 
   entries.sort((a, b) => a.timestamp - b.timestamp);
-
   return { entries, warnings };
 }
 
@@ -230,7 +231,6 @@ function buildSegments(entries) {
   const segments = [];
   const warnings = [];
   let openIn = null;
-  let ongoingSegment = null;
 
   entries.forEach((entry) => {
     if (entry.type === 'in') {
@@ -253,23 +253,21 @@ function buildSegments(entries) {
 
   if (openIn) {
     const now = new Date();
-    const expectedOut = new Date(openIn.timestamp.getTime() + SHIFT_TARGET_MS);
-    const out = {
+    const inferredOut = {
       ...openIn,
       type: 'out',
       inferred: true,
       timestamp: now,
     };
-    ongoingSegment = { in: openIn, out, ongoing: true, expectedOut };
-    segments.push(ongoingSegment);
+    segments.push({ in: openIn, out: inferredOut, ongoing: true });
   }
 
-  return { segments, warnings, ongoing: ongoingSegment };
+  return { segments, warnings };
 }
 
-function buildMetrics(segments, entryCount, ongoingSegment) {
-  if (!segments.length) return null;
-  const dayDate = segments[0].in.timestamp;
+function buildMetrics(segments, entryCount, firstInEntry) {
+  if (!segments.length || !firstInEntry) return null;
+  const base = firstInEntry.timestamp;
   const totalWorked = segments.reduce((sum, seg) => sum + Math.max(0, seg.out.timestamp - seg.in.timestamp), 0);
   const totalBreak = segments.reduce((sum, seg, idx) => {
     if (idx === 0) return sum;
@@ -277,29 +275,53 @@ function buildMetrics(segments, entryCount, ongoingSegment) {
     const gap = seg.in.timestamp - prev.out.timestamp;
     return gap > 0 ? sum + gap : sum;
   }, 0);
-  const workDeltaMs = WORK_TARGET_MS - totalWorked;
-  const breakDeltaMs = BREAK_TARGET_MS - totalBreak;
-  const progress = Math.min(1, totalWorked / SHIFT_TARGET_MS);
+
+  const stateFlag = segments.some((seg) => seg.ongoing) ? 'incomplete' : 'complete';
+  const progressSegments = buildProgressSegments(segments, base);
+  const expectedOut = new Date(base.getTime() + SHIFT_TARGET_MS);
+
   return {
-    dayKey: formatDateKey(dayDate),
-    dayLabel: formatDateLabel(dayDate),
+    dayKey: formatDateKey(base),
+    dayLabel: formatDateLabel(base),
     totalWorked,
     totalBreak,
-    workDeltaMs,
-    breakDeltaMs,
-    progress,
-    ongoing: Boolean(ongoingSegment),
-    expectedOut: ongoingSegment ? ongoingSegment.expectedOut : null,
+    workDeltaMs: WORK_TARGET_MS - totalWorked,
+    breakDeltaMs: BREAK_TARGET_MS - totalBreak,
+    progressSegments,
+    state: stateFlag,
+    firstIn: base,
+    expectedOut,
     eventCount: entryCount,
   };
 }
 
+function buildProgressSegments(segments, baseline) {
+  if (!baseline) return [];
+  const baseMs = baseline.getTime();
+  const items = [];
+  segments.forEach((seg, idx) => {
+    const start = Math.max(0, seg.in.timestamp.getTime() - baseMs);
+    const end = Math.max(start, seg.out.timestamp.getTime() - baseMs);
+    items.push({ type: 'work', startOffset: start, endOffset: end });
+    if (idx < segments.length - 1) {
+      const gapStart = end;
+      const nextStart = Math.max(gapStart, segments[idx + 1].in.timestamp.getTime() - baseMs);
+      if (nextStart > gapStart) {
+        items.push({ type: 'break', startOffset: gapStart, endOffset: nextStart });
+      }
+    }
+  });
+  return items;
+}
+
 function renderAll() {
   renderHints();
-  renderMetrics();
   renderStatusChips();
+  renderInsights();
   renderSummaryMessage();
   renderExpectedRow();
+  renderProgress();
+  renderSwipeNote();
   renderTimeline();
   renderHistorySelect();
 }
@@ -308,57 +330,49 @@ function renderHints() {
   els.hintStrip.textContent = state.hints.length ? state.hints.join(' · ') : 'Ready when you are.';
 }
 
-function renderMetrics() {
-  els.metricsGrid.innerHTML = '';
+function renderInsights() {
+  els.insightGrid.innerHTML = '';
   if (!state.metrics) {
     els.dayLabel.textContent = 'No data yet';
-    els.progressBar.style.width = '0%';
-    els.progressValue.textContent = `0 / ${SHIFT_TARGET_HOURS}h`;
     return;
   }
-
-  const workInsight = describeWorkDelta(state.metrics);
-  const breakInsight = describeBreakDelta(state.metrics);
-
   els.dayLabel.textContent = state.metrics.dayLabel;
-  els.progressBar.style.width = `${(state.metrics.progress * 100).toFixed(1)}%`;
-  els.progressValue.textContent = `${(state.metrics.progress * SHIFT_TARGET_HOURS).toFixed(1)} / ${SHIFT_TARGET_HOURS}h`;
-
+  const workStatus = getWorkStatus(state.metrics);
+  const breakStatus = getBreakStatus(state.metrics);
   const cards = [
-    { label: 'Total Worked', value: formatDuration(state.metrics.totalWorked), meta: workInsight.metaShort },
-    { label: 'Work Status', value: workInsight.label, meta: workInsight.detail },
-    { label: 'Total Break', value: formatDuration(state.metrics.totalBreak), meta: breakInsight.metaShort },
-    { label: 'Break Status', value: breakInsight.label, meta: breakInsight.detail },
+    {
+      title: 'Work',
+      total: formatDuration(state.metrics.totalWorked),
+      status: workStatus.label,
+    },
+    {
+      title: 'Break',
+      total: formatDuration(state.metrics.totalBreak),
+      status: breakStatus.label,
+    },
   ];
-
   cards.forEach((card) => {
     const node = document.createElement('div');
-    node.className = 'metric-card';
-    node.innerHTML = `<span>${card.label}</span><strong>${card.value}</strong>${card.meta ? `<small>${card.meta}</small>` : ''}`;
-    els.metricsGrid.appendChild(node);
+    node.className = 'insight-card';
+    node.innerHTML = `<span>${card.title}</span><strong>${card.total}</strong><small>${card.status}</small>`;
+    els.insightGrid.appendChild(node);
   });
 }
 
 function renderStatusChips() {
   els.statusChips.innerHTML = '';
-  if (!state.rawInput.trim()) {
-    els.statusChips.appendChild(createChip('Paste logs to begin', 'info'));
-    return;
-  }
-
   state.warnings.slice(0, 2).forEach((warning) => {
     els.statusChips.appendChild(createChip(warning, 'warning'));
   });
-
-  if (!state.metrics) return;
-  const workInsight = describeWorkDelta(state.metrics);
-  const breakInsight = describeBreakDelta(state.metrics);
-  const shiftChip = state.metrics.ongoing
-    ? createChip('Shift in progress', 'warning')
-    : createChip('Shift complete', state.metrics.workDeltaMs >= 0 ? 'info' : 'info');
-  els.statusChips.appendChild(shiftChip);
-  els.statusChips.appendChild(createChip(workInsight.label, workInsight.tone));
-  els.statusChips.appendChild(createChip(breakInsight.label, breakInsight.tone));
+  if (!state.metrics) {
+    els.statusChips.appendChild(createChip('Paste logs to begin', 'info'));
+    return;
+  }
+  const shiftTone = state.metrics.state === 'complete' ? 'info' : 'warning';
+  els.statusChips.appendChild(createChip(state.metrics.state === 'complete' ? 'Completed shift' : 'Incomplete shift', shiftTone));
+  if (state.metrics.state === 'incomplete' && state.metrics.expectedOut) {
+    els.statusChips.appendChild(createChip(`Expected OUT ${formatTime(state.metrics.expectedOut)}`, 'info'));
+  }
 }
 
 function renderSummaryMessage() {
@@ -367,16 +381,15 @@ function renderSummaryMessage() {
     els.summaryMessage.textContent = 'Paste a single day of punches to see totals, gaps, and friendly nudges.';
     return;
   }
-  const workInsight = describeWorkDelta(state.metrics);
-  const breakInsight = describeBreakDelta(state.metrics);
+  const workStatus = getWorkStatus(state.metrics);
+  const breakStatus = getBreakStatus(state.metrics);
   const parts = [];
-  if (state.metrics.ongoing && state.metrics.expectedOut) {
-    parts.push(`Shift still running — expected completion around ${formatDateTime(state.metrics.expectedOut)}.`);
-  } else if (!state.metrics.ongoing) {
-    parts.push('Shift wrapped for the day.');
+  parts.push(state.metrics.state === 'complete' ? 'Shift complete.' : 'Shift is still running.');
+  if (state.metrics.state === 'incomplete' && state.metrics.expectedOut) {
+    parts.push(`Expected OUT around ${formatDateTime(state.metrics.expectedOut)}.`);
   }
-  parts.push(workInsight.detail || workInsight.label);
-  parts.push(breakInsight.detail || breakInsight.label);
+  parts.push(workStatus.detail);
+  parts.push(breakStatus.detail);
   els.summaryMessage.textContent = parts.join(' ');
 }
 
@@ -386,16 +399,68 @@ function renderExpectedRow() {
     els.expectedRow.textContent = '';
     return;
   }
-  if (state.metrics.ongoing && state.metrics.expectedOut) {
-    els.expectedRow.innerHTML = `<strong>Ongoing shift</strong><span>Expected out ~ ${formatDateTime(state.metrics.expectedOut)}</span>`;
+  if (state.metrics.state === 'incomplete' && state.metrics.expectedOut) {
+    els.expectedRow.innerHTML = `<strong>Ongoing shift</strong><span>Expected OUT ≈ ${formatDateTime(state.metrics.expectedOut)}</span>`;
     return;
   }
-  const status = state.metrics.workDeltaMs > 0
-    ? `Needs ${formatDiff(state.metrics.workDeltaMs)} more work` :
-      state.metrics.workDeltaMs < 0
-        ? `Extra work logged: ${formatDiff(Math.abs(state.metrics.workDeltaMs))}`
-        : 'Exactly 8h of focus logged';
-  els.expectedRow.innerHTML = `<strong>Shift complete</strong><span>${status}</span>`;
+  const workStatus = getWorkStatus(state.metrics);
+  els.expectedRow.innerHTML = `<strong>Shift summary</strong><span>${workStatus.label}</span>`;
+}
+
+function renderProgress() {
+  if (!els.segmentTrack || !els.progressValue || !els.progressBadges) return;
+  if (!state.metrics || !state.metrics.progressSegments.length) {
+    els.segmentTrack.style.setProperty('--track-gradient', '');
+    els.segmentTrack.dataset.gradient = 'false';
+    els.segmentTrack.classList.remove('overrun');
+    els.progressValue.textContent = '0h work · 0m break';
+    els.progressBadges.innerHTML = '';
+    return;
+  }
+  const gradient = buildSegmentGradient(state.metrics.progressSegments);
+  if (gradient) {
+    els.segmentTrack.style.setProperty('--track-gradient', gradient);
+    els.segmentTrack.dataset.gradient = 'true';
+  } else {
+    els.segmentTrack.style.setProperty('--track-gradient', '');
+    els.segmentTrack.dataset.gradient = 'false';
+  }
+  const workStatus = getWorkStatus(state.metrics);
+  const breakStatus = getBreakStatus(state.metrics);
+  els.segmentTrack.classList.toggle('overrun', state.metrics.totalWorked > SHIFT_TARGET_MS || state.metrics.totalBreak > BREAK_TARGET_MS);
+  els.progressValue.textContent = `${formatDuration(state.metrics.totalWorked)} work · ${formatDuration(state.metrics.totalBreak)} break`;
+  els.progressBadges.innerHTML = '';
+  [workStatus.short, breakStatus.short]
+    .filter(Boolean)
+    .forEach((text) => {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = text;
+      els.progressBadges.appendChild(badge);
+    });
+}
+
+function buildSegmentGradient(segments) {
+  if (!segments.length) return '';
+  const pieces = [];
+  segments.forEach((segment) => {
+    const startPct = clamp((segment.startOffset / SHIFT_TARGET_MS) * 100, 0, 100);
+    const endPct = clamp((segment.endOffset / SHIFT_TARGET_MS) * 100, 0, 100);
+    if (endPct <= startPct) return;
+    const color = segment.type === 'work' ? 'var(--accent)' : 'var(--accent-3)';
+    pieces.push(`${color} ${startPct}% ${endPct}%`);
+  });
+  return pieces.join(', ');
+}
+
+function renderSwipeNote() {
+  if (!els.swipeNote) return;
+  els.swipeNote.textContent = '';
+  if (!state.metrics) return;
+  const workStatus = getWorkStatus(state.metrics);
+  if (workStatus.swipe) {
+    els.swipeNote.textContent = `Swipe reminder: ${workStatus.detail}`;
+  }
 }
 
 function renderTimeline() {
@@ -405,15 +470,13 @@ function renderTimeline() {
     return;
   }
   els.timelineInfo.textContent = `${state.entries.length} punch${state.entries.length === 1 ? '' : 'es'}`;
-
   state.entries.forEach((entry) => {
     const item = document.createElement('li');
     item.dataset.type = entry.type;
     item.innerHTML = `<span>${entry.type === 'in' ? 'IN' : 'OUT'}</span><span>${formatTime(entry.timestamp)}</span>`;
     els.timelineList.appendChild(item);
   });
-
-  if (state.metrics?.ongoing && state.metrics.expectedOut) {
+  if (state.metrics?.state === 'incomplete' && state.metrics.expectedOut) {
     const item = document.createElement('li');
     item.dataset.type = 'out';
     item.dataset.ongoing = 'true';
@@ -424,8 +487,8 @@ function renderTimeline() {
 
 function renderHistorySelect() {
   if (!els.historySelect) return;
-  const active = state.metrics?.dayKey || '';
   const select = els.historySelect;
+  const active = state.metrics?.dayKey || '';
   const prevValue = select.value;
   select.innerHTML = '<option value="">History</option>';
   state.historyList.forEach((record) => {
@@ -448,12 +511,12 @@ function copySummary() {
     pushInfo('Nothing to copy yet.');
     return;
   }
-  const workInsight = describeWorkDelta(state.metrics);
-  const breakInsight = describeBreakDelta(state.metrics);
-  const expectedLine = state.metrics.ongoing && state.metrics.expectedOut
-    ? `Expected out: ${formatDateTime(state.metrics.expectedOut)}`
+  const workStatus = getWorkStatus(state.metrics);
+  const breakStatus = getBreakStatus(state.metrics);
+  const expectedLine = state.metrics.state === 'incomplete' && state.metrics.expectedOut
+    ? `Expected OUT: ${formatDateTime(state.metrics.expectedOut)}`
     : 'Shift complete';
-  const text = `NineToFive — ${state.metrics.dayLabel}\nWorked: ${formatDuration(state.metrics.totalWorked)}\nBreaks: ${formatDuration(state.metrics.totalBreak)}\n${workInsight.label}\n${breakInsight.label}\n${expectedLine}`;
+  const text = `NineToFive — ${state.metrics.dayLabel}\nWork: ${formatDuration(state.metrics.totalWorked)} (${workStatus.label})\nBreak: ${formatDuration(state.metrics.totalBreak)} (${breakStatus.label})\n${workStatus.detail}\n${breakStatus.detail}\n${expectedLine}`;
   navigator.clipboard
     .writeText(text)
     .then(() => pushInfo('Summary copied.'))
@@ -472,52 +535,110 @@ function resetApp() {
   renderAll();
 }
 
-function describeWorkDelta(metrics) {
+function getWorkStatus(metrics) {
   const diff = metrics.workDeltaMs;
+  const diffText = formatDiff(Math.abs(diff));
+  if (metrics.state === 'incomplete') {
+    if (diff > 0) {
+      return {
+        label: `Work left: ${diffText}`,
+        detail: `${diffText} of work remaining — give OUT only after that.`,
+        short: `Work −${diffText}`,
+        tone: 'warning',
+        swipe: false,
+      };
+    }
+    if (diff < 0) {
+      return {
+        label: 'Already hit 8h',
+        detail: `Required 8h already logged — feel free to wrap once you swipe.`,
+        short: `Work done`,
+        tone: 'info',
+        swipe: false,
+      };
+    }
+    return {
+      label: 'Work target on point',
+      detail: 'Exactly 8h logged. Swipe whenever ready.',
+      short: 'Work exact',
+      tone: 'info',
+      swipe: false,
+    };
+  }
   if (diff > 0) {
-    const label = `Work left: ${formatDiff(diff)}`;
-    const detail = `${label}. Apply for swipe correction in the SpineHR portal to complete the shift.`;
-    return { label, detail, metaShort: 'Under 8h so far', tone: 'warning' };
+    return {
+      label: `Short by ${diffText}`,
+      detail: `Apply for swipe correction in SpineHR for the missing ${diffText}.`,
+      short: `Short ${diffText}`,
+      tone: 'error',
+      swipe: true,
+    };
   }
   if (diff < 0) {
-    const extra = formatDiff(Math.abs(diff));
     return {
-      label: `Extra work: ${extra}`,
-      detail: `Extra work: ${extra}. Huge effort — thank you for grinding today!`,
-      metaShort: 'Beyond 8h',
+      label: `Extra work: ${diffText}`,
+      detail: `Great job — ${diffText} beyond the required 8h.`,
+      short: `Extra ${diffText}`,
       tone: 'info',
+      swipe: false,
     };
   }
   return {
-    label: 'Exactly 8h logged',
-    detail: "Exactly eight hours of work. Chef's kiss balance.",
-    metaShort: 'Target met',
+    label: 'Exactly 8h',
+    detail: 'Perfect balance. Enjoy the rest of the day.',
+    short: 'On target',
     tone: 'info',
+    swipe: false,
   };
 }
 
-function describeBreakDelta(metrics) {
+function getBreakStatus(metrics) {
   const diff = metrics.breakDeltaMs;
+  const diffText = formatDiff(Math.abs(diff));
+  if (metrics.state === 'incomplete') {
+    if (diff > 0) {
+      return {
+        label: `Break left: ${diffText}`,
+        detail: `Take ${diffText} more break time before signing off.`,
+        short: `Break −${diffText}`,
+        tone: 'info',
+      };
+    }
+    if (diff < 0) {
+      return {
+        label: `Extra break: ${diffText}`,
+        detail: `Extra break of ${diffText}. You must work beyond the 9h mark to cover it.`,
+        short: `Break +${diffText}`,
+        tone: 'warning',
+      };
+    }
+    return {
+      label: 'Break on track',
+      detail: 'Breaks sitting right on the 60m target.',
+      short: 'Break exact',
+      tone: 'info',
+    };
+  }
   if (diff > 0) {
-    const left = formatDiff(diff);
-    const detail = metrics.ongoing
-      ? `Break left: ${left}. Take a breather soon.`
-      : `Break left: ${left}. You worked a little extra today!`;
-    return { label: `Break left: ${left}`, detail, metaShort: 'Under 60m', tone: 'info' };
+    return {
+      label: `Short break: ${diffText}`,
+      detail: `Took ${diffText} less — thanks for grinding a little extra.`,
+      short: `Short break ${diffText}`,
+      tone: 'info',
+    };
   }
   if (diff < 0) {
-    const extra = formatDiff(Math.abs(diff));
     return {
-      label: `Extra break: ${extra}`,
-      detail: `Extra break: ${extra}. God is watching.`,
-      metaShort: 'Over 60m',
+      label: `Extra break: ${diffText}`,
+      detail: `Extra break of ${diffText}. Hope HR lets you live!`,
+      short: `Extra break ${diffText}`,
       tone: 'warning',
     };
   }
   return {
     label: 'Break ≈ 60m',
-    detail: 'Perfectly timed break — hydration masterclass.',
-    metaShort: 'Spot on',
+    detail: 'Perfectly timed break window.',
+    short: 'Break on point',
     tone: 'info',
   };
 }
@@ -552,7 +673,7 @@ function persistHistory(dayKey, dayLabel, raw) {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(state.historyMap));
   } catch (error) {
-    // ignore storage issues
+    // storage full/blocked — silently ignore
   }
   state.historyList = Object.values(state.historyMap).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
 }
@@ -573,6 +694,10 @@ function debounce(fn, delay = 200) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function formatDuration(ms) {
