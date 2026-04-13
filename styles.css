@@ -191,10 +191,10 @@ textarea:focus {
   color: var(--text-muted);
 }
 
-.metrics-grid {
+.insight-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
   margin-bottom: 20px;
 }
 
@@ -208,32 +208,32 @@ textarea:focus {
   color: var(--text);
 }
 
-.metric-card {
+.insight-card {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: calc(var(--radius) - 10px);
-  padding: 16px;
+  border-radius: calc(var(--radius) - 8px);
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 110px;
+  min-height: 126px;
   position: relative;
   overflow: hidden;
 }
 
-.metric-card span {
+.insight-card span {
   font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-.metric-card strong {
-  font-size: 1.4rem;
+.insight-card strong {
+  font-size: 1.6rem;
   font-weight: 600;
 }
 
-.metric-card small {
+.insight-card small {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
 }
 
 .expected-row {
@@ -246,7 +246,7 @@ textarea:focus {
   color: var(--text-muted);
 }
 
-.metric-card::after {
+.insight-card::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -255,35 +255,97 @@ textarea:focus {
   transition: opacity 0.3s ease;
 }
 
-.metric-card:hover::after {
+.insight-card:hover::after {
   opacity: 1;
 }
 
-.progress-shell {
-  margin-bottom: 20px;
+.shift-progress {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: calc(var(--radius) - 8px);
+  padding: 18px;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.01);
 }
 
-.progress-labels {
+.progress-head {
   display: flex;
   justify-content: space-between;
   font-size: 0.9rem;
   color: var(--text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
-.progress-track {
-  height: 8px;
+.segment-track {
+  position: relative;
+  height: 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   overflow: hidden;
+  transition: box-shadow 0.3s ease;
 }
 
-.progress-bar {
-  height: 100%;
-  width: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), var(--accent-3));
-  transition: width 0.4s ease;
+.segment-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: none;
+  background-repeat: no-repeat;
+  transition: background-image 0.2s ease;
+}
+
+.segment-track[data-gradient=\"true\"]::after {
+  background-image: var(--track-gradient);
+}
+
+.segment-track.overrun {
+  box-shadow: 0 0 14px rgba(255, 111, 135, 0.35);
+}
+
+.segment-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.segment-legend .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.dot.work {
+  background: var(--accent);
+}
+
+.dot.break {
+  background: var(--accent-3);
+}
+
+.progress-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.progress-badges .badge {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.swipe-note {
+  font-size: 0.85rem;
+  color: var(--warning);
+  margin-bottom: 16px;
 }
 
 .timeline-panel {
