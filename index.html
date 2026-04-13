@@ -22,6 +22,12 @@
       <button class="ghost" id="pasteBtn">Paste</button>
       <button class="ghost" id="sampleBtn">Sample Data</button>
       <button class="ghost" id="clearBtn">Clear</button>
+      <label class="history-control">
+        <span>Saved days</span>
+        <select id="historySelect">
+          <option value="">History</option>
+        </select>
+      </label>
     </div>
   </header>
 
@@ -51,7 +57,9 @@
         </div>
         <div id="statusChips" class="chip-row" aria-live="polite"></div>
       </div>
+      <div id="summaryMessage" class="summary-message">Paste logs to see insights.</div>
       <div id="metricsGrid" class="metrics-grid"></div>
+      <div class="expected-row" id="expectedRow"></div>
       <div class="progress-shell">
         <div class="progress-labels">
           <span>Shift Progress</span>
