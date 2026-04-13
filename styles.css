@@ -419,8 +419,9 @@ textarea:focus {
     height: 12px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
+    overflow: visible;
     transition: box-shadow 0.3s ease;
+    isolation: isolate;
 }
 
 .segment-track::after {
@@ -430,6 +431,8 @@ textarea:focus {
     background-image: none;
     background-repeat: no-repeat;
     transition: background-image 0.2s ease;
+    pointer-events: none;
+    z-index: 0;
 }
 
 .segment-track[data-gradient=\"true\"]::after {
@@ -547,8 +550,8 @@ textarea:focus {
 
 .segment-tooltip {
     position: absolute;
-    top: -54px;
-    transform: translateX(-50%);
+    bottom: calc(100% + 14px);
+    transform: translate(-50%, 8px);
     padding: 8px 12px;
     border-radius: 14px;
     background: rgba(7, 12, 22, 0.98);
@@ -567,11 +570,12 @@ textarea:focus {
     gap: 3px;
     min-width: 180px;
     align-items: flex-start;
+    z-index: 5;
 }
 
 .segment-tooltip[data-visible="true"] {
     opacity: 1;
-    transform: translateX(-50%) translateY(-2px);
+    transform: translate(-50%, 0);
 }
 
 .segment-tooltip strong {
