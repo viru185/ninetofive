@@ -46,7 +46,7 @@ NineToFive is a compact, AMOLED-dark single-day attendance companion. Paste a da
     - Over 1h → show the exact extra break and remind the user the shift must go beyond the 9h mark (completed state adds “hope HR lets you live”).
 - Expected Out: always `first In + 9h`. Displayed prominently whenever a shift is incomplete.
 
--## Progress Bar & Status Chips
+## Progress Bar & Status Chips
 
 - The multi-color bar stacks work, break, extra work, extra break, and swipe-adjustment segments in order; work uses aqua accents, breaks use warm amber/orange, extras use brighter hues.
 - Hover any segment to see its duration and status (“Within target”, “Over limit”, “Swipe correction”, etc.) via a dark-themed tooltip.
