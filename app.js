@@ -7,10 +7,14 @@ const HISTORY_KEY = "ninetofive-single-history";
 const WORK_PORTION_PCT = (WORK_TARGET_MS / SHIFT_TARGET_MS) * 100;
 const BREAK_PORTION_PCT = 100 - WORK_PORTION_PCT;
 
-const SAMPLE_DATA = `10-Apr-26    09:02 AM    In    HQ-1
-10-Apr-26    12:08 PM    Out   HQ-1
-10-Apr-26    12:47 PM    In    HQ-1
-10-Apr-26    18:05 PM    Out   HQ-1`;
+const SAMPLE_DATA = `13-Apr-26	09:18 AM	In	0.0.0.0	IN	13-Apr-26	13-Apr-26 09:18 AM	 
+13-Apr-26	01:32 PM	Out	0.0.0.0	OUT	13-Apr-26	13-Apr-26 01:32 PM	 
+13-Apr-26	02:01 PM	In	0.0.0.0	IN	13-Apr-26	13-Apr-26 02:01 PM	 
+13-Apr-26	04:17 PM	Out	0.0.0.0	OUT	13-Apr-26	13-Apr-26 04:17 PM	 
+13-Apr-26	04:24 PM	In	0.0.0.0	IN	13-Apr-26	13-Apr-26 04:24 PM	 
+13-Apr-26	05:47 PM	Out	0.0.0.0	OUT	13-Apr-26	13-Apr-26 05:47 PM	 
+13-Apr-26	06:00 PM	In	0.0.0.0	IN	13-Apr-26	13-Apr-26 06:00 PM	 
+13-Apr-26	07:12 PM	Out	0.0.0.0	OUT	13-Apr-26	13-Apr-26 07:12 PM	 `;
 
 const monthMap = {
     jan: 0,
