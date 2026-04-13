@@ -469,7 +469,9 @@ textarea:focus {
     transition:
         transform 0.18s ease,
         box-shadow 0.18s ease,
-        opacity 0.18s ease;
+        opacity 0.18s ease,
+        width 0.3s ease,
+        left 0.3s ease;
 }
 
 .segment-piece:hover {
@@ -480,33 +482,35 @@ textarea:focus {
 .segment-work {
     background: linear-gradient(
         90deg,
-        rgba(77, 216, 255, 0.95),
-        rgba(77, 216, 255, 0.65)
+        rgba(74, 202, 255, 0.95),
+        rgba(59, 130, 246, 0.8)
     );
 }
 
 .segment-break {
     background: linear-gradient(
         90deg,
-        rgba(255, 159, 124, 0.95),
-        rgba(255, 159, 124, 0.65)
+        rgba(255, 181, 99, 0.95),
+        rgba(255, 135, 74, 0.8)
     );
 }
 
 .segment-extra-work {
     background: linear-gradient(
         90deg,
-        rgba(123, 109, 255, 0.95),
-        rgba(123, 109, 255, 0.65)
+        rgba(123, 180, 255, 0.98),
+        rgba(82, 236, 255, 0.72)
     );
+    box-shadow: 0 0 16px rgba(123, 180, 255, 0.35);
 }
 
 .segment-extra-break {
     background: linear-gradient(
         90deg,
-        rgba(255, 107, 129, 0.95),
-        rgba(255, 107, 129, 0.65)
+        rgba(255, 107, 107, 0.98),
+        rgba(255, 61, 107, 0.78)
     );
+    box-shadow: 0 0 18px rgba(255, 107, 129, 0.45);
 }
 
 .segment-swipe {
@@ -521,6 +525,26 @@ textarea:focus {
     box-shadow: 0 0 14px rgba(255, 107, 129, 0.35);
 }
 
+.segment-piece[data-ongoing="true"] {
+    box-shadow: 0 0 14px rgba(77, 216, 255, 0.3);
+    animation: segmentPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes segmentPulse {
+    0% {
+        opacity: 0.8;
+        box-shadow: 0 0 12px rgba(77, 216, 255, 0.18);
+    }
+    50% {
+        opacity: 1;
+        box-shadow: 0 0 20px rgba(77, 216, 255, 0.4);
+    }
+    100% {
+        opacity: 0.85;
+        box-shadow: 0 0 14px rgba(77, 216, 255, 0.24);
+    }
+}
+
 .segment-tooltip {
     position: absolute;
     top: -54px;
@@ -532,17 +556,40 @@ textarea:focus {
     box-shadow: 0 16px 30px rgba(0, 0, 0, 0.45);
     color: var(--text);
     font-size: 0.82rem;
-    white-space: nowrap;
+    white-space: normal;
     pointer-events: none;
     opacity: 0;
     transition:
         opacity 0.15s ease,
         transform 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 180px;
+    align-items: flex-start;
 }
 
 .segment-tooltip[data-visible="true"] {
     opacity: 1;
     transform: translateX(-50%) translateY(-2px);
+}
+
+.segment-tooltip strong {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-size: 0.78rem;
+    color: var(--text);
+}
+
+.segment-tooltip span {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+.segment-tooltip span:first-of-type {
+    color: var(--text);
+    font-weight: 500;
 }
 
 .dot.work {
