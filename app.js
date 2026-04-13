@@ -490,24 +490,32 @@ function renderProgress() {
         .querySelectorAll(".segment-piece")
         .forEach((node) => node.remove());
     hideSegmentTooltip();
-    if (!state.metrics) {
-        els.segmentTrack.classList.remove("overrun");
-        els.progressValue.textContent = "0h work · 0m break";
-        els.progressBadges.innerHTML = "";
-        return;
-    }
-    const workStatus = getWorkStatus(state.metrics);
-    const breakStatus = getBreakStatus(state.metrics);
-    const segmentPayload = buildSegmentData(
-        state.metrics,
-        workStatus,
-        breakStatus,
+    const hasMetrics = Boolean(state.metrics);
+    const workStatus = hasMetrics ? getWorkStatus(state.metrics) : null;
+    const breakStatus = hasMetrics ? getBreakStatus(state.metrics) : null;
+    const timelinePayload = buildTimelineSegments(
+        state.entries,
+        state.segments,
     );
-    const segments = segmentPayload.segments;
-    if (!segments.length) {
+    const segments = timelinePayload.segments;
+
+    if (!segments.length || !timelinePayload.totalDuration) {
+        delete els.segmentTrack.dataset.gradient;
         els.segmentTrack.classList.remove("overrun");
-        els.progressValue.textContent = "0h work · 0m break";
+        els.progressValue.textContent = hasMetrics
+            ? `${formatDuration(state.metrics.totalWorked)} work · ${formatDuration(state.metrics.totalBreak)} break`
+            : "Waiting for enough punches to draw the day.";
         els.progressBadges.innerHTML = "";
+        if (hasMetrics) {
+            [workStatus?.short, breakStatus?.short]
+                .filter(Boolean)
+                .forEach((text) => {
+                    const badge = document.createElement("span");
+                    badge.className = "badge";
+                    badge.textContent = text;
+                    els.progressBadges.appendChild(badge);
+                });
+        }
         return;
     }
 
@@ -516,15 +524,25 @@ function renderProgress() {
     let offset = 0;
     segments.forEach((segment) => {
         const widthPct =
-            (segment.duration / segmentPayload.totalDuration) * 100;
-        const leftPct = (offset / segmentPayload.totalDuration) * 100;
+            (segment.duration / timelinePayload.totalDuration) * 100;
+        if (!Number.isFinite(widthPct) || widthPct <= 0) return;
+        const leftPct = (offset / timelinePayload.totalDuration) * 100;
         const node = document.createElement("div");
-        node.className = `segment-piece segment-${segment.type}`;
+        node.classList.add("segment-piece", `segment-${segment.type}`);
+        if (segment.isExtra) {
+            node.classList.add(
+                segment.type === "work"
+                    ? "segment-extra-work"
+                    : "segment-extra-break",
+            );
+        }
+        if (segment.ongoing) {
+            node.dataset.ongoing = "true";
+        }
+        node.dataset.type = segment.type;
+        node.dataset.extra = segment.isExtra ? "true" : "false";
         node.style.left = `${leftPct}%`;
         node.style.width = `${widthPct}%`;
-        if (segment.over) {
-            node.classList.add("over");
-        }
         attachSegmentTooltip(node, segment);
         els.segmentTrack.appendChild(node);
         offset += segment.duration;
@@ -532,17 +550,25 @@ function renderProgress() {
 
     els.segmentTrack.classList.toggle(
         "overrun",
-        state.metrics.totalWorked > WORK_TARGET_MS ||
-            state.metrics.totalBreak > BREAK_TARGET_MS,
+        segments.some((segment) => segment.isExtra),
     );
-    els.progressValue.textContent = `${formatDuration(state.metrics.totalWorked)} work · ${formatDuration(state.metrics.totalBreak)} break`;
-    els.progressBadges.innerHTML = "";
-    [workStatus.short, breakStatus.short].filter(Boolean).forEach((text) => {
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = text;
-        els.progressBadges.appendChild(badge);
-    });
+
+    if (hasMetrics) {
+        els.progressValue.textContent = `${formatDuration(state.metrics.totalWorked)} work · ${formatDuration(state.metrics.totalBreak)} break`;
+        els.progressBadges.innerHTML = "";
+        [workStatus?.short, breakStatus?.short]
+            .filter(Boolean)
+            .forEach((text) => {
+                const badge = document.createElement("span");
+                badge.className = "badge";
+                badge.textContent = text;
+                els.progressBadges.appendChild(badge);
+            });
+    } else {
+        els.progressValue.textContent =
+            "Timeline live once you clock at least one IN.";
+        els.progressBadges.innerHTML = "";
+    }
 }
 
 function renderSwipeNote() {
@@ -615,73 +641,141 @@ function renderHistoryMenu() {
     });
 }
 
-function buildSegmentData(metrics, workStatus, breakStatus) {
-    const workCore = Math.min(metrics.totalWorked, WORK_TARGET_MS);
-    const breakCore = Math.min(metrics.totalBreak, BREAK_TARGET_MS);
-    const extraWork = Math.max(metrics.totalWorked - WORK_TARGET_MS, 0);
-    const extraBreak = Math.max(metrics.totalBreak - BREAK_TARGET_MS, 0);
-    const swipeAdjust =
-        metrics.state === "complete" && metrics.workDeltaMs > 0
-            ? metrics.workDeltaMs
-            : 0;
+function buildTimelineSegments(entries = [], segments = []) {
+    if (!Array.isArray(segments) || !segments.length) {
+        return { segments: [], totalDuration: 0 };
+    }
+    const cleanedEntries = Array.isArray(entries)
+        ? entries.filter((entry) => entry && entry.timestamp instanceof Date)
+        : [];
+    const hasInPunch = cleanedEntries.some((entry) => entry.type === "in");
+    if (!hasInPunch) {
+        return { segments: [], totalDuration: 0 };
+    }
+    const hasOngoing = segments.some((segment) => segment.ongoing);
+    if (cleanedEntries.length < 2 && !hasOngoing) {
+        return { segments: [], totalDuration: 0 };
+    }
 
-    const segments = [];
-    if (workCore > 0) {
-        segments.push({
+    const ordered = [...segments].sort(
+        (a, b) => a.in.timestamp - b.in.timestamp,
+    );
+    const timeline = [];
+    const now = new Date();
+
+    ordered.forEach((workSegment, index) => {
+        const startTs = workSegment.in?.timestamp;
+        const outTs = workSegment.out?.timestamp;
+        if (!startTs || !outTs) return;
+        const isLast = index === ordered.length - 1;
+        const effectiveEnd =
+            workSegment.ongoing && isLast ? now : outTs;
+        if (effectiveEnd <= startTs) return;
+
+        timeline.push({
             type: "work",
             label: "Work",
-            duration: workCore,
-            status: workStatus.label,
-            detail: workStatus.detail,
-            over: metrics.totalWorked > WORK_TARGET_MS,
+            start: new Date(startTs),
+            end: new Date(effectiveEnd),
+            duration: effectiveEnd - startTs,
+            ongoing: workSegment.ongoing && isLast,
+            isExtra: false,
         });
-    }
-    if (breakCore > 0) {
-        segments.push({
+
+        const next = ordered[index + 1];
+        if (!next) return;
+        const breakStart = outTs;
+        const breakEnd = next.in?.timestamp;
+        if (!breakStart || !breakEnd || breakEnd <= breakStart) return;
+        timeline.push({
             type: "break",
             label: "Break",
-            duration: breakCore,
-            status: breakStatus.label,
-            detail: breakStatus.detail,
-            over: metrics.totalBreak > BREAK_TARGET_MS,
+            start: new Date(breakStart),
+            end: new Date(breakEnd),
+            duration: breakEnd - breakStart,
+            ongoing: false,
+            isExtra: false,
         });
-    }
-    if (extraWork > 0) {
-        segments.push({
-            type: "extra-work",
-            label: "Extra work",
-            duration: extraWork,
-            status: "Beyond 8h target",
-            detail: `Extra work ${formatDuration(extraWork)}`,
-            over: true,
-        });
-    }
-    if (extraBreak > 0) {
-        segments.push({
-            type: "extra-break",
-            label: "Extra break",
-            duration: extraBreak,
-            status: "Over break limit",
-            detail: `Extra break ${formatDuration(extraBreak)}`,
-            over: true,
-        });
-    }
-    if (swipeAdjust > 0) {
-        segments.push({
-            type: "swipe",
-            label: "Swipe adjustment",
-            duration: swipeAdjust,
-            status: "Swipe correction needed",
-            detail: `Missing ${formatDuration(swipeAdjust)}`,
-            over: false,
-        });
+    });
+
+    if (!timeline.length) {
+        return { segments: [], totalDuration: 0 };
     }
 
-    let totalDuration = segments.reduce((sum, seg) => sum + seg.duration, 0);
-    if (!totalDuration) {
-        totalDuration = SHIFT_TARGET_MS;
+    const detailed = splitTimelineSegments(timeline);
+    const totalDuration = detailed.reduce(
+        (sum, segment) => sum + segment.duration,
+        0,
+    );
+    return { segments: detailed, totalDuration };
+}
+
+function splitTimelineSegments(timelineSegments) {
+    let workRemaining = WORK_TARGET_MS;
+    let breakRemaining = BREAK_TARGET_MS;
+    const detailedSegments = [];
+
+    timelineSegments.forEach((segment) => {
+        if (!segment.duration || segment.duration <= 0) {
+            return;
+        }
+        const targetType = segment.type === "work" ? "work" : "break";
+        let cursor = segment.start.getTime();
+        let remaining = segment.duration;
+
+        while (remaining > 0) {
+            const allowance =
+                targetType === "work" ? workRemaining : breakRemaining;
+            const isExtra = allowance <= 0;
+            const sliceDuration = isExtra
+                ? remaining
+                : Math.min(remaining, allowance);
+            if (sliceDuration <= 0) {
+                break;
+            }
+            const sliceStart = cursor;
+            const sliceEnd = sliceStart + sliceDuration;
+            const isLastSlice = sliceEnd === segment.end.getTime();
+            detailedSegments.push({
+                type: targetType,
+                label: describeSegmentLabel(targetType, isExtra),
+                start: new Date(sliceStart),
+                end: new Date(sliceEnd),
+                duration: sliceDuration,
+                isExtra,
+                ongoing: segment.ongoing && isLastSlice,
+                status: describeSegmentStatus(
+                    segment.ongoing && isLastSlice,
+                    isExtra,
+                ),
+            });
+            remaining -= sliceDuration;
+            cursor = sliceEnd;
+            if (!isExtra) {
+                if (targetType === "work") {
+                    workRemaining -= sliceDuration;
+                } else {
+                    breakRemaining -= sliceDuration;
+                }
+            }
+        }
+    });
+
+    return detailedSegments;
+}
+
+function describeSegmentLabel(type, isExtra) {
+    if (isExtra) {
+        return type === "work" ? "Extra work" : "Extra break";
     }
-    return { segments, totalDuration };
+    return type === "work" ? "Work" : "Break";
+}
+
+function describeSegmentStatus(isOngoing, isExtra) {
+    if (isOngoing && isExtra) return "Ongoing extra";
+    if (isOngoing) return "Ongoing";
+    if (isExtra) return "Extra";
+    return "Normal";
 }
 
 function attachSegmentTooltip(node, segment) {
@@ -696,7 +790,17 @@ function attachSegmentTooltip(node, segment) {
 
 function showSegmentTooltip(event, segment) {
     if (!els.segmentTooltip) return;
-    els.segmentTooltip.innerHTML = `<strong>${segment.label}</strong><span>${formatDuration(segment.duration)} · ${segment.status}</span>`;
+    const startText = segment.start ? formatTime(segment.start) : "—";
+    const endText = segment.ongoing
+        ? "Now"
+        : segment.end
+          ? formatTime(segment.end)
+          : "—";
+    const durationText = formatDuration(segment.duration);
+    const statusText =
+        segment.status ||
+        (segment.ongoing ? "Ongoing" : segment.isExtra ? "Extra" : "Normal");
+    els.segmentTooltip.innerHTML = `<strong>${segment.label}</strong><span>${startText} → ${endText}</span><span>Duration: ${durationText}</span><span>Status: ${statusText}</span>`;
     els.segmentTooltip.dataset.visible = "true";
     positionSegmentTooltip(event);
 }
