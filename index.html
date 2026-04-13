@@ -22,7 +22,7 @@
       <button class="ghost" id="pasteBtn">Paste</button>
       <button class="ghost" id="sampleBtn">Sample Data</button>
       <button class="ghost" id="clearBtn">Clear</button>
-      <div class="history-control" id="historyControl">
+      <div class="history-control" id="historyControl" data-open="false">
         <button class="history-button" id="historyButton" type="button" aria-haspopup="listbox" aria-expanded="false">
           <span>Saved days</span>
           <span class="chevron" aria-hidden="true">⌄</span>
@@ -66,10 +66,7 @@
           <span>Shift progress</span>
           <span id="progressValue">0h work · 0m break</span>
         </div>
-        <div class="segment-track" id="segmentTrack">
-          <div class="segment segment-work" id="segmentWork"></div>
-          <div class="segment segment-break" id="segmentBreak"></div>
-        </div>
+        <div class="segment-track" id="segmentTrack"></div>
         <div class="segment-legend">
           <span><span class="dot work"></span>Work target 8h</span>
           <span><span class="dot break"></span>Break target 1h</span>
