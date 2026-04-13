@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NineToFive · Single-Day Attendance Snapshot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo">9•5</div>
+      <div class="brand-copy">
+        <h1>NineToFive</h1>
+        <p>Single-day attendance in seconds.</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="ghost" id="pasteBtn">Paste</button>
+      <button class="ghost" id="sampleBtn">Sample Data</button>
+      <button class="ghost" id="clearBtn">Clear</button>
+    </div>
+  </header>
+
+  <main class="app-layout">
+    <section class="panel input-panel" aria-label="Input area">
+      <div class="panel-head">
+        <div>
+          <h2>Raw Log</h2>
+          <p>Paste punches for a single workday.</p>
+        </div>
+        <button class="chip" id="autoCalcToggle" disabled>Auto · ON</button>
+      </div>
+      <textarea id="logInput" placeholder="Paste your punch logs here"></textarea>
+      <div class="input-footer">
+        <div id="hintStrip">Waiting for data…</div>
+        <div class="input-actions">
+          <button id="copySummaryBtn">Copy Summary</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel summary-panel" aria-label="Single day summary">
+      <div class="summary-head">
+        <div>
+          <h2>Today's Snapshot</h2>
+          <p id="dayLabel">No data yet</p>
+        </div>
+        <div id="statusChips" class="chip-row" aria-live="polite"></div>
+      </div>
+      <div id="metricsGrid" class="metrics-grid"></div>
+      <div class="progress-shell">
+        <div class="progress-labels">
+          <span>Shift Progress</span>
+          <span id="progressValue">0 / 9h</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+      </div>
+      <section class="timeline-panel" aria-label="Timeline">
+        <div class="timeline-head">
+          <h3>Punch Timeline</h3>
+          <span id="timelineInfo">No entries yet.</span>
+        </div>
+        <ul id="timelineList" class="timeline"></ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
