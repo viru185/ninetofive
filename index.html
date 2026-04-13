@@ -58,17 +58,21 @@
         <div id="statusChips" class="chip-row" aria-live="polite"></div>
       </div>
       <div id="summaryMessage" class="summary-message">Paste logs to see insights.</div>
-      <div id="metricsGrid" class="metrics-grid"></div>
+      <div id="insightGrid" class="insight-grid"></div>
       <div class="expected-row" id="expectedRow"></div>
-      <div class="progress-shell">
-        <div class="progress-labels">
-          <span>Shift Progress</span>
-          <span id="progressValue">0 / 9h</span>
+      <section class="shift-progress" aria-label="Shift progress">
+        <div class="progress-head">
+          <span>Shift progress</span>
+          <span id="progressValue">0h work · 0m break</span>
         </div>
-        <div class="progress-track">
-          <div class="progress-bar" id="progressBar"></div>
+        <div class="segment-track" id="segmentTrack"></div>
+        <div class="segment-legend">
+          <span><span class="dot work"></span>Work target 8h</span>
+          <span><span class="dot break"></span>Break target 1h</span>
         </div>
-      </div>
+      </section>
+      <div id="progressBadges" class="progress-badges"></div>
+      <div class="swipe-note" id="swipeNote"></div>
       <section class="timeline-panel" aria-label="Timeline">
         <div class="timeline-head">
           <h3>Punch Timeline</h3>
