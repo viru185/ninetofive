@@ -1,62 +1,71 @@
 # NineToFive
 
-NineToFive is an AMOLED-dark, single-day attendance checker that feels fast, smart, and friendly. Paste a day’s punches, and the app instantly tells you how much you have worked, how much break time you’ve used, how much is left, and when you can expect to clock out — plus it remembers each day automatically in your browser.
+NineToFive is a compact, AMOLED-dark single-day attendance companion. Paste a day’s punch log, and the app instantly shows how much you have worked, how much break time remains, whether the shift is still open, and when you are expected to swipe out — all while remembering each day automatically in your browser.
 
-## Features
-- Built strictly for **one workday** at a time; extra dates are ignored with a polite warning.
-- Large paste surface with one-click Paste, Sample Data, auto-recalculation on every edit, and a compact output panel.
-- Exact totals for work and break time, including the remaining or extra minutes with playful nudges (yes, “God is watching” when breaks run long).
-- Ongoing-shift handling that projects the expected OUT time (targeting 8h work + 1h break) while still counting your actual progress to the current moment.
-- Chips and summary rows instead of bulky panels so the most important info stays front and center.
-- Timeline of punches plus a copy-ready summary snippet for quick chats or tickets.
-- **Browser history**: every parsed day is saved by date in `localStorage` (cookies optional), and you can reopen it instantly from the Saved Days dropdown. Re-pasting the same date simply updates the saved record.
+## Highlights
+- Purpose-built for one day of punches; extra dates are ignored with a friendly chip.
+- One-click Paste/Sample/Clear controls plus a session-aware history dropdown aligned with the header.
+- Clean dual cards for **Work** and **Break** totals with precise remaining/extra time messaging.
+- Shift states (Incomplete vs. Completed) are surfaced via compact chips and a summary line.
+- Expected Out time is always calculated from the **first In time + 9 hours** (8h work + 1h break). If the shift is still running, that expectation stays in view.
+- Dual-color progress bar renders work/break segments across the 9-hour window, so you can see which sections are logged and which are pending.
+- Automatic browser storage (via `localStorage`): every parsed day is saved by its date key. Selecting the date rehydrates the raw log; re-pasting overwrites the stored record.
+- Friendly nudges: swipe-correction reminders for short work days, playful “hope HR lets you live” quips for long breaks, and encouragement for extra effort.
 
-## Getting Started
-1. Clone or download this repository.
-2. Open `index.html` directly in a modern browser *or* serve the folder with any static server (`npx serve .`).
-3. Paste a single day of logs and watch the dashboard update in real time.
-
-## Usage Flow
-1. Paste punch lines (or tap **Paste** / **Sample Data**).
-2. The analyzer parses only the first date it finds, calculates totals, and stores the day automatically.
-3. Use the **Saved days** dropdown to reopen past entries stored in your browser.
-4. Copy the summary if you need to send an update, or clear to start over.
+## Usage
+1. Open `index.html` in a modern browser (or serve the folder with any static server such as `npx serve .`).
+2. Paste a single day of raw logs into the text area (or press **Paste** / **Sample Data**).
+3. The analyzer recalculates instantly, updates the work/break cards, the progress bar, and the punch timeline, then saves the day in history.
+4. Reopen prior days using the **Saved days** dropdown; the raw text is restored so you can tweak and recalc quickly.
+5. Copy the summary if you need to drop the numbers into chat/email, or Clear to start fresh.
 
 ## Input Format
-- One punch per line containing a date (`10-Apr-26` or `10/Apr/2026`), a time (`09:02 AM`, `17:40`, etc.), and a keyword `In` or `Out` (case-insensitive).
-- Extra columns like IP or machine IDs are ignored.
-- Blank lines are skipped; malformed rows appear as warning chips.
-- If you paste multiple dates, only the first date remains and a reminder chip appears.
+- One punch per line containing:
+  - Date token (`10-Apr-26`, `10/Apr/2026`, etc.).
+  - Time token (`09:02 AM`, `17:40`, optional seconds).
+  - Direction keyword `In` / `Out` (case-insensitive).
+- Extra columns/IPs/machine IDs are ignored.
+- Blank or malformed lines are skipped and surfaced as warning chips.
+- If multiple dates are pasted, only the first date remains.
 
-## Calculation Rules & Logic
-- Entries are sorted chronologically and paired `In → Out`. If an `Out` is missing, the shift becomes “in progress” rather than an error.
-- **Work time target**: 8 hours. If you’re short, the UI shows the exact minutes left and reminds you to apply for swipe correction in the SpineHR portal. If you go beyond 8 hours, it congratulates you and shows how much extra time you delivered.
-- **Break target**: 60 minutes. You’ll see “Break left: X” or “Extra break: Y” with a lighthearted warning for overindulgence. Under-running your break triggers a “you worked a little extra” message.
-- **Expected OUT time**: for an ongoing shift, the app projects the completion time by adding 9 hours (8 work + 1 break) to the first unmatched `In`. Actual worked totals still use the current moment so you can see progress.
-- Overlapping entries, consecutive `In`s, and lonely `Out`s don’t break the flow — they’re simply flagged via chips.
+## Calculation Rules
+- All timing starts from the **first valid In**. Every expected milestone (including projected OUT) references that baseline.
+- Segments: entries are sorted chronologically and paired `In → Out`. Negative gaps are discarded with warnings.
+- Ongoing shifts: if the latest `In` lacks an `Out`, the shift becomes “Incomplete,” the work total keeps counting up to “now,” and the expected OUT time shows as `first In + 9h`.
+- Work status logic:
+  - Under 8h & incomplete → show remaining time and tell the user to keep working before swiping.
+  - Under 8h & completed → tell the user to apply for **swipe correction in SpineHR** (plus a dedicated swipe note).
+  - Over 8h → congratulate the user and state how much extra work was logged.
+- Break status logic:
+  - Under 1h & incomplete → show remaining break time and suggest taking it soon.
+  - Under 1h & completed → thank the user for hustling extra.
+  - Over 1h → show the exact extra break and remind the user the shift must go beyond the 9h mark (completed state adds “hope HR lets you live”).
+- Expected Out: always `first In + 9h`. Displayed prominently whenever a shift is incomplete.
+
+## Progress Bar & Status Chips
+- The multi-color bar renders actual work and break segments along the 9-hour window; work uses aqua accents, breaks use warm amber/orange.
+- Short badges under the bar show the current deltas (e.g., `Work −32m`, `Break +12m`).
+- Chips at the top summarize shift state, warnings, and expected Out times without huge panels.
 
 ## Browser History
-- Every successful parse is saved in `localStorage` under its date key. Selecting that date from the dropdown rehydrates the raw log so you can review or tweak it.
-- Saving the same date again overwrites the stored copy with the latest pasted text.
-- Because this uses browser storage, the history stays on the same device/browser and clears if you wipe site data.
+- Each parsed day is persisted locally (no backend). Selecting a saved date restores the raw log so you can revisit or adjust it.
+- Saving the same date again overwrites the prior snapshot.
+- Clearing browser/site data removes the stored history.
 
-## Ongoing Shifts
-- When the latest punch is `In` without a corresponding `Out`, NineToFive:
-  - Treats the shift as **in progress**.
-  - Continues counting work time up to “now”.
-  - Shows an expected completion time (first `In` + 9h) inside the summary row, so you know when the shift *should* end.
-  - Keeps the punch timeline visible, with an extra “Expected OUT” marker.
+## README-friendly FAQ
+- **Why no uploads?** The tool only accepts paste input to keep the workflow fast (per the requirements).
+- **Why single day?** Scope is intentionally tight; multi-day grouping is explicitly out-of-scope.
+- **Swipe correction?** Any completed shift that still lacks 8h of work triggers a SpineHR reminder banner so you can raise a swipe correction immediately.
 
-## Edge Cases Handled
-- Inconsistent spacing, duplicate columns, or blank lines.
-- Consecutive `In` entries (older `In` is closed immediately with a warning).
-- `Out` entries without a prior `In` (skipped + warning).
-- Attempts to paste multiple dates (only the first date survives).
+## Edge Cases & Safeguards
+- Inconsistent whitespace, duplicate columns, or blank lines are normalized away.
+- Consecutive `In` entries close the older `In` with an inferred `Out` and a warning chip.
+- Lone `Out` entries are skipped but logged as warnings.
+- Extra breaks explicitly mention the need to work beyond the 9-hour expectation to recover the lost work time.
 
 ## Future Ideas
-- Optional export of the summary as CSV/JSON for attachment to HR portals.
-- Configurable shift length (for teams with non-9h schedules).
-- SpineHR API hooks for pushing swipe corrections automatically.
+- Configurable targets for teams that operate outside the 8h/1h split.
+- Optional CSV/JSON export of the day summary (still plain HTML/JS).
+- Direct SpineHR integration for filing swipe corrections automatically.
 
----
-Questions or ideas? Open an issue and let’s make daily attendance even smoother.
+Feel free to open an issue or send feedback — happy to iterate and keep your daily attendance check painless.
