@@ -4,6 +4,8 @@ const WORK_TARGET_HOURS = 8;
 const WORK_TARGET_MS = WORK_TARGET_HOURS * 60 * 60 * 1000;
 const BREAK_TARGET_MS = 60 * 60 * 1000;
 const HISTORY_KEY = 'ninetofive-single-history';
+const WORK_PORTION_PCT = (WORK_TARGET_MS / SHIFT_TARGET_MS) * 100;
+const BREAK_PORTION_PCT = 100 - WORK_PORTION_PCT;
 
 const SAMPLE_DATA = `10-Apr-26    09:02 AM    In    HQ-1
 10-Apr-26    12:08 PM    Out   HQ-1
@@ -53,6 +55,8 @@ function cacheDom() {
   els.insightGrid = document.getElementById('insightGrid');
   els.expectedRow = document.getElementById('expectedRow');
   els.segmentTrack = document.getElementById('segmentTrack');
+  els.segmentWork = document.getElementById('segmentWork');
+  els.segmentBreak = document.getElementById('segmentBreak');
   els.progressValue = document.getElementById('progressValue');
   els.progressBadges = document.getElementById('progressBadges');
   els.swipeNote = document.getElementById('swipeNote');
@@ -60,7 +64,15 @@ function cacheDom() {
   els.timelineList = document.getElementById('timelineList');
   els.timelineInfo = document.getElementById('timelineInfo');
   els.dayLabel = document.getElementById('dayLabel');
-  els.historySelect = document.getElementById('historySelect');
+  els.historyButton = document.getElementById('historyButton');
+  els.historyMenu = document.getElementById('historyMenu');
+  els.historyControl = document.getElementById('historyControl');
+  if (els.historyButton) {
+    els.historyButton.setAttribute('aria-expanded', 'false');
+  }
+  if (els.historyControl) {
+    els.historyControl.dataset.open = 'false';
+  }
 
   els.logInput.addEventListener('input', debounce(handleInputChange, 200));
   els.pasteBtn = document.getElementById('pasteBtn');
@@ -92,13 +104,23 @@ function bindEvents() {
   els.clearBtn.addEventListener('click', resetApp);
   els.copySummaryBtn.addEventListener('click', copySummary);
 
-  els.historySelect.addEventListener('change', (event) => {
-    const key = event.target.value;
-    if (!key) return;
-    const record = state.historyMap[key];
-    if (record) {
-      els.logInput.value = record.raw;
-      processInput(record.raw, 'history');
+  if (els.historyButton) {
+    els.historyButton.addEventListener('click', () => {
+      const isOpen = els.historyControl?.dataset.open === 'true';
+      toggleHistoryMenu(!isOpen);
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    if (!els.historyControl) return;
+    if (event.target === els.historyButton) return;
+    if (els.historyControl.contains(event.target)) return;
+    toggleHistoryMenu(false);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      toggleHistoryMenu(false);
     }
   });
 }
@@ -277,7 +299,6 @@ function buildMetrics(segments, entryCount, firstInEntry) {
   }, 0);
 
   const stateFlag = segments.some((seg) => seg.ongoing) ? 'incomplete' : 'complete';
-  const progressSegments = buildProgressSegments(segments, base);
   const expectedOut = new Date(base.getTime() + SHIFT_TARGET_MS);
 
   return {
@@ -287,31 +308,11 @@ function buildMetrics(segments, entryCount, firstInEntry) {
     totalBreak,
     workDeltaMs: WORK_TARGET_MS - totalWorked,
     breakDeltaMs: BREAK_TARGET_MS - totalBreak,
-    progressSegments,
     state: stateFlag,
     firstIn: base,
     expectedOut,
     eventCount: entryCount,
   };
-}
-
-function buildProgressSegments(segments, baseline) {
-  if (!baseline) return [];
-  const baseMs = baseline.getTime();
-  const items = [];
-  segments.forEach((seg, idx) => {
-    const start = Math.max(0, seg.in.timestamp.getTime() - baseMs);
-    const end = Math.max(start, seg.out.timestamp.getTime() - baseMs);
-    items.push({ type: 'work', startOffset: start, endOffset: end });
-    if (idx < segments.length - 1) {
-      const gapStart = end;
-      const nextStart = Math.max(gapStart, segments[idx + 1].in.timestamp.getTime() - baseMs);
-      if (nextStart > gapStart) {
-        items.push({ type: 'break', startOffset: gapStart, endOffset: nextStart });
-      }
-    }
-  });
-  return items;
 }
 
 function renderAll() {
@@ -323,7 +324,7 @@ function renderAll() {
   renderProgress();
   renderSwipeNote();
   renderTimeline();
-  renderHistorySelect();
+  renderHistoryMenu();
 }
 
 function renderHints() {
@@ -408,26 +409,32 @@ function renderExpectedRow() {
 }
 
 function renderProgress() {
-  if (!els.segmentTrack || !els.progressValue || !els.progressBadges) return;
-  if (!state.metrics || !state.metrics.progressSegments.length) {
-    els.segmentTrack.style.setProperty('--track-gradient', '');
-    els.segmentTrack.dataset.gradient = 'false';
+  if (!els.segmentTrack || !els.segmentWork || !els.segmentBreak || !els.progressValue || !els.progressBadges) return;
+  if (!state.metrics) {
+    els.segmentWork.style.width = '0%';
+    els.segmentBreak.style.width = '0%';
     els.segmentTrack.classList.remove('overrun');
+    els.segmentWork.classList.remove('over');
+    els.segmentBreak.classList.remove('over');
     els.progressValue.textContent = '0h work · 0m break';
     els.progressBadges.innerHTML = '';
     return;
   }
-  const gradient = buildSegmentGradient(state.metrics.progressSegments);
-  if (gradient) {
-    els.segmentTrack.style.setProperty('--track-gradient', gradient);
-    els.segmentTrack.dataset.gradient = 'true';
-  } else {
-    els.segmentTrack.style.setProperty('--track-gradient', '');
-    els.segmentTrack.dataset.gradient = 'false';
-  }
   const workStatus = getWorkStatus(state.metrics);
   const breakStatus = getBreakStatus(state.metrics);
-  els.segmentTrack.classList.toggle('overrun', state.metrics.totalWorked > SHIFT_TARGET_MS || state.metrics.totalBreak > BREAK_TARGET_MS);
+
+  const workRatio = state.metrics.totalWorked / WORK_TARGET_MS;
+  const breakRatio = state.metrics.totalBreak / BREAK_TARGET_MS;
+  const workWidth = clamp(workRatio, 0, 1) * WORK_PORTION_PCT;
+  const breakWidth = clamp(breakRatio, 0, 1) * BREAK_PORTION_PCT;
+
+  els.segmentWork.style.width = `${workWidth}%`;
+  els.segmentBreak.style.left = `${WORK_PORTION_PCT}%`;
+  els.segmentBreak.style.width = `${breakWidth}%`;
+  els.segmentWork.classList.toggle('over', workRatio > 1);
+  els.segmentBreak.classList.toggle('over', breakRatio > 1);
+
+  els.segmentTrack.classList.toggle('overrun', workRatio > 1 || breakRatio > 1);
   els.progressValue.textContent = `${formatDuration(state.metrics.totalWorked)} work · ${formatDuration(state.metrics.totalBreak)} break`;
   els.progressBadges.innerHTML = '';
   [workStatus.short, breakStatus.short]
@@ -438,19 +445,6 @@ function renderProgress() {
       badge.textContent = text;
       els.progressBadges.appendChild(badge);
     });
-}
-
-function buildSegmentGradient(segments) {
-  if (!segments.length) return '';
-  const pieces = [];
-  segments.forEach((segment) => {
-    const startPct = clamp((segment.startOffset / SHIFT_TARGET_MS) * 100, 0, 100);
-    const endPct = clamp((segment.endOffset / SHIFT_TARGET_MS) * 100, 0, 100);
-    if (endPct <= startPct) return;
-    const color = segment.type === 'work' ? 'var(--accent)' : 'var(--accent-3)';
-    pieces.push(`${color} ${startPct}% ${endPct}%`);
-  });
-  return pieces.join(', ');
 }
 
 function renderSwipeNote() {
@@ -485,25 +479,39 @@ function renderTimeline() {
   }
 }
 
-function renderHistorySelect() {
-  if (!els.historySelect) return;
-  const select = els.historySelect;
+function renderHistoryMenu() {
+  if (!els.historyMenu || !els.historyButton || !els.historyControl) return;
   const active = state.metrics?.dayKey || '';
-  const prevValue = select.value;
-  select.innerHTML = '<option value="">History</option>';
-  state.historyList.forEach((record) => {
-    const option = document.createElement('option');
-    option.value = record.dayKey;
-    option.textContent = record.dayLabel;
-    select.appendChild(option);
-  });
-  if (active) {
-    select.value = active;
-  } else if (prevValue && state.historyMap[prevValue]) {
-    select.value = prevValue;
-  } else {
-    select.value = '';
+  els.historyMenu.innerHTML = '';
+  if (!state.historyList.length) {
+    const li = document.createElement('li');
+    li.className = 'history-empty';
+    li.textContent = 'No saved days yet';
+    els.historyMenu.appendChild(li);
+    els.historyButton.disabled = true;
+    toggleHistoryMenu(false, true);
+    return;
   }
+  els.historyButton.disabled = false;
+  state.historyList.forEach((record) => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = record.dayLabel;
+    btn.dataset.key = record.dayKey;
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('aria-selected', record.dayKey === active ? 'true' : 'false');
+    if (record.dayKey === active) {
+      btn.classList.add('active');
+    }
+    btn.addEventListener('click', () => {
+      toggleHistoryMenu(false);
+      els.logInput.value = record.raw;
+      processInput(record.raw, 'history');
+    });
+    li.appendChild(btn);
+    els.historyMenu.appendChild(li);
+  });
 }
 
 function copySummary() {
@@ -531,7 +539,7 @@ function resetApp() {
   state.warnings = [];
   state.hints = ['Cleared. Ready for new data.'];
   els.logInput.value = '';
-  els.historySelect.value = '';
+  toggleHistoryMenu(false, true);
   renderAll();
 }
 
@@ -676,6 +684,17 @@ function persistHistory(dayKey, dayLabel, raw) {
     // storage full/blocked — silently ignore
   }
   state.historyList = Object.values(state.historyMap).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+}
+
+function toggleHistoryMenu(forceState, skipFocus) {
+  if (!els.historyControl || !els.historyButton) return;
+  const current = els.historyControl.dataset.open === 'true';
+  const next = forceState !== undefined ? forceState : !current;
+  els.historyControl.dataset.open = next ? 'true' : 'false';
+  els.historyButton.setAttribute('aria-expanded', next ? 'true' : 'false');
+  if (!next && !skipFocus) {
+    els.historyButton.blur();
+  }
 }
 
 function pushInfo(message) {
