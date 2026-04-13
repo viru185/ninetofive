@@ -511,6 +511,8 @@ function renderProgress() {
         return;
     }
 
+    els.segmentTrack.dataset.gradient = "true";
+
     let offset = 0;
     segments.forEach((segment) => {
         const widthPct =
