@@ -1,6 +1,9 @@
 const SHIFT_TARGET_HOURS = 9;
 const SHIFT_TARGET_MS = SHIFT_TARGET_HOURS * 60 * 60 * 1000;
+const WORK_TARGET_HOURS = 8;
+const WORK_TARGET_MS = WORK_TARGET_HOURS * 60 * 60 * 1000;
 const BREAK_TARGET_MS = 60 * 60 * 1000;
+const HISTORY_KEY = 'ninetofive-single-history';
 
 const SAMPLE_DATA = `10-Apr-26    09:02 AM    In    HQ-1
 10-Apr-26    12:08 PM    Out   HQ-1
@@ -30,6 +33,8 @@ const state = {
   metrics: null,
   warnings: [],
   hints: [],
+  historyMap: {},
+  historyList: [],
 };
 
 const els = {};
@@ -37,6 +42,7 @@ const els = {};
 document.addEventListener('DOMContentLoaded', () => {
   cacheDom();
   bindEvents();
+  loadHistory();
   renderAll();
 });
 
@@ -50,6 +56,9 @@ function cacheDom() {
   els.progressBar = document.getElementById('progressBar');
   els.progressValue = document.getElementById('progressValue');
   els.dayLabel = document.getElementById('dayLabel');
+  els.summaryMessage = document.getElementById('summaryMessage');
+  els.expectedRow = document.getElementById('expectedRow');
+  els.historySelect = document.getElementById('historySelect');
   els.logInput.addEventListener('input', debounce(handleInputChange, 200));
 
   els.pasteBtn = document.getElementById('pasteBtn');
@@ -67,7 +76,7 @@ function bindEvents() {
     try {
       const text = await navigator.clipboard.readText();
       els.logInput.value = text;
-      processInput(text);
+      processInput(text, 'clipboard');
     } catch (error) {
       pushWarning('Unable to read clipboard data.');
     }
@@ -75,19 +84,29 @@ function bindEvents() {
 
   els.sampleBtn.addEventListener('click', () => {
     els.logInput.value = SAMPLE_DATA;
-    processInput(SAMPLE_DATA);
+    processInput(SAMPLE_DATA, 'sample');
   });
 
   els.clearBtn.addEventListener('click', resetApp);
 
   els.copySummaryBtn.addEventListener('click', copySummary);
+
+  els.historySelect.addEventListener('change', (event) => {
+    const key = event.target.value;
+    if (!key) return;
+    const record = state.historyMap[key];
+    if (record) {
+      els.logInput.value = record.raw;
+      processInput(record.raw, 'history');
+    }
+  });
 }
 
 function handleInputChange(e) {
-  processInput(e.target.value);
+  processInput(e.target.value, 'typing');
 }
 
-function processInput(raw) {
+function processInput(raw, source = 'manual') {
   state.rawInput = raw;
   if (!raw.trim()) {
     state.entries = [];
@@ -104,6 +123,9 @@ function processInput(raw) {
   state.metrics = result.metrics;
   state.warnings = result.warnings;
   state.hints = result.hints;
+  if (result.metrics && result.metrics.dayKey) {
+    persistHistory(result.metrics.dayKey, result.metrics.dayLabel, raw);
+  }
   renderAll();
 }
 
@@ -111,7 +133,7 @@ function analyze(raw) {
   const parseResult = parseRawInput(raw);
   const dayResult = restrictToSingleDay(parseResult.entries);
   const segmentResult = buildSegments(dayResult.entries);
-  const metrics = buildMetrics(segmentResult.segments, dayResult.entries.length);
+  const metrics = buildMetrics(segmentResult.segments, dayResult.entries.length, segmentResult.ongoing);
   const warnings = [...parseResult.warnings, ...dayResult.warnings, ...segmentResult.warnings];
   const hints = metrics ? [`Parsed ${metrics.eventCount} punch${metrics.eventCount === 1 ? '' : 'es'}.`] : ['No valid punches detected.'];
   return {
@@ -208,6 +230,7 @@ function buildSegments(entries) {
   const segments = [];
   const warnings = [];
   let openIn = null;
+  let ongoingSegment = null;
 
   entries.forEach((entry) => {
     if (entry.type === 'in') {
@@ -228,25 +251,23 @@ function buildSegments(entries) {
     openIn = null;
   });
 
-  let ongoingSegment = null;
   if (openIn) {
     const now = new Date();
-    const sameDay = formatDateKey(now) === formatDateKey(openIn.timestamp);
-    const endTime = sameDay ? now : new Date(openIn.timestamp.getTime());
+    const expectedOut = new Date(openIn.timestamp.getTime() + SHIFT_TARGET_MS);
     const out = {
       ...openIn,
       type: 'out',
       inferred: true,
-      timestamp: endTime,
+      timestamp: now,
     };
-    ongoingSegment = { in: openIn, out, ongoing: true };
+    ongoingSegment = { in: openIn, out, ongoing: true, expectedOut };
     segments.push(ongoingSegment);
   }
 
   return { segments, warnings, ongoing: ongoingSegment };
 }
 
-function buildMetrics(segments, entryCount) {
+function buildMetrics(segments, entryCount, ongoingSegment) {
   if (!segments.length) return null;
   const dayDate = segments[0].in.timestamp;
   const totalWorked = segments.reduce((sum, seg) => sum + Math.max(0, seg.out.timestamp - seg.in.timestamp), 0);
@@ -256,37 +277,31 @@ function buildMetrics(segments, entryCount) {
     const gap = seg.in.timestamp - prev.out.timestamp;
     return gap > 0 ? sum + gap : sum;
   }, 0);
-  const breakBadge = classifyBreak(totalBreak);
-  const ongoing = segments[segments.length - 1].ongoing;
-  const eventCount = entryCount;
+  const workDeltaMs = WORK_TARGET_MS - totalWorked;
+  const breakDeltaMs = BREAK_TARGET_MS - totalBreak;
+  const progress = Math.min(1, totalWorked / SHIFT_TARGET_MS);
   return {
     dayKey: formatDateKey(dayDate),
     dayLabel: formatDateLabel(dayDate),
     totalWorked,
     totalBreak,
-    breakBadge,
-    ongoing,
-    ongoingEnd: ongoing ? segments[segments.length - 1].out.timestamp : null,
-    progress: Math.min(1, totalWorked / SHIFT_TARGET_MS),
-    eventCount,
+    workDeltaMs,
+    breakDeltaMs,
+    progress,
+    ongoing: Boolean(ongoingSegment),
+    expectedOut: ongoingSegment ? ongoingSegment.expectedOut : null,
+    eventCount: entryCount,
   };
-}
-
-function classifyBreak(breakMs) {
-  if (!breakMs) return { label: 'No breaks recorded', tone: 'info' };
-  const delta = breakMs - BREAK_TARGET_MS;
-  if (Math.abs(delta) <= 2 * 60 * 1000) {
-    return { label: 'Break ≈ 1 hour', tone: 'info' };
-  }
-  if (delta > 0) return { label: 'Break > 1 hour', tone: 'warning' };
-  return { label: 'Break < 1 hour', tone: 'info' };
 }
 
 function renderAll() {
   renderHints();
   renderMetrics();
   renderStatusChips();
+  renderSummaryMessage();
+  renderExpectedRow();
   renderTimeline();
+  renderHistorySelect();
 }
 
 function renderHints() {
@@ -302,19 +317,18 @@ function renderMetrics() {
     return;
   }
 
+  const workInsight = describeWorkDelta(state.metrics);
+  const breakInsight = describeBreakDelta(state.metrics);
+
   els.dayLabel.textContent = state.metrics.dayLabel;
   els.progressBar.style.width = `${(state.metrics.progress * 100).toFixed(1)}%`;
   els.progressValue.textContent = `${(state.metrics.progress * SHIFT_TARGET_HOURS).toFixed(1)} / ${SHIFT_TARGET_HOURS}h`;
 
   const cards = [
-    { label: 'Worked', value: formatDuration(state.metrics.totalWorked) },
-    { label: 'Breaks', value: formatDuration(state.metrics.totalBreak) },
-    { label: 'Break Signal', value: state.metrics.breakBadge.label },
-    {
-      label: 'Shift Status',
-      value: state.metrics.ongoing ? 'In progress' : 'Complete',
-      meta: state.metrics.ongoing && state.metrics.ongoingEnd ? `Ends approx ${formatTime(state.metrics.ongoingEnd)} (now)` : 'Ready',
-    },
+    { label: 'Total Worked', value: formatDuration(state.metrics.totalWorked), meta: workInsight.metaShort },
+    { label: 'Work Status', value: workInsight.label, meta: workInsight.detail },
+    { label: 'Total Break', value: formatDuration(state.metrics.totalBreak), meta: breakInsight.metaShort },
+    { label: 'Break Status', value: breakInsight.label, meta: breakInsight.detail },
   ];
 
   cards.forEach((card) => {
@@ -328,28 +342,60 @@ function renderMetrics() {
 function renderStatusChips() {
   els.statusChips.innerHTML = '';
   if (!state.rawInput.trim()) {
-    const chip = createChip('Paste logs to begin', 'info');
-    els.statusChips.appendChild(chip);
+    els.statusChips.appendChild(createChip('Paste logs to begin', 'info'));
     return;
   }
-  if (!state.warnings.length) {
-    const tone = state.metrics?.ongoing ? 'warning' : 'info';
-    const text = state.metrics?.ongoing ? 'Shift still running' : 'Looks good';
-    els.statusChips.appendChild(createChip(text, tone));
-    return;
-  }
-  state.warnings.slice(0, 3).forEach((warning) => {
-    const level = warning.toLowerCase().includes('skip') ? 'warning' : 'error';
-    els.statusChips.appendChild(createChip(warning, level));
+
+  state.warnings.slice(0, 2).forEach((warning) => {
+    els.statusChips.appendChild(createChip(warning, 'warning'));
   });
+
+  if (!state.metrics) return;
+  const workInsight = describeWorkDelta(state.metrics);
+  const breakInsight = describeBreakDelta(state.metrics);
+  const shiftChip = state.metrics.ongoing
+    ? createChip('Shift in progress', 'warning')
+    : createChip('Shift complete', state.metrics.workDeltaMs >= 0 ? 'info' : 'info');
+  els.statusChips.appendChild(shiftChip);
+  els.statusChips.appendChild(createChip(workInsight.label, workInsight.tone));
+  els.statusChips.appendChild(createChip(breakInsight.label, breakInsight.tone));
 }
 
-function createChip(text, tone = 'info') {
-  const chip = document.createElement('span');
-  chip.className = 'status-chip';
-  chip.dataset.tone = tone;
-  chip.textContent = text;
-  return chip;
+function renderSummaryMessage() {
+  if (!els.summaryMessage) return;
+  if (!state.metrics) {
+    els.summaryMessage.textContent = 'Paste a single day of punches to see totals, gaps, and friendly nudges.';
+    return;
+  }
+  const workInsight = describeWorkDelta(state.metrics);
+  const breakInsight = describeBreakDelta(state.metrics);
+  const parts = [];
+  if (state.metrics.ongoing && state.metrics.expectedOut) {
+    parts.push(`Shift still running — expected completion around ${formatDateTime(state.metrics.expectedOut)}.`);
+  } else if (!state.metrics.ongoing) {
+    parts.push('Shift wrapped for the day.');
+  }
+  parts.push(workInsight.detail || workInsight.label);
+  parts.push(breakInsight.detail || breakInsight.label);
+  els.summaryMessage.textContent = parts.join(' ');
+}
+
+function renderExpectedRow() {
+  if (!els.expectedRow) return;
+  if (!state.metrics) {
+    els.expectedRow.textContent = '';
+    return;
+  }
+  if (state.metrics.ongoing && state.metrics.expectedOut) {
+    els.expectedRow.innerHTML = `<strong>Ongoing shift</strong><span>Expected out ~ ${formatDateTime(state.metrics.expectedOut)}</span>`;
+    return;
+  }
+  const status = state.metrics.workDeltaMs > 0
+    ? `Needs ${formatDiff(state.metrics.workDeltaMs)} more work` :
+      state.metrics.workDeltaMs < 0
+        ? `Extra work logged: ${formatDiff(Math.abs(state.metrics.workDeltaMs))}`
+        : 'Exactly 8h of focus logged';
+  els.expectedRow.innerHTML = `<strong>Shift complete</strong><span>${status}</span>`;
 }
 
 function renderTimeline() {
@@ -367,12 +413,33 @@ function renderTimeline() {
     els.timelineList.appendChild(item);
   });
 
-  if (state.metrics?.ongoing && state.metrics.ongoingEnd) {
+  if (state.metrics?.ongoing && state.metrics.expectedOut) {
     const item = document.createElement('li');
     item.dataset.type = 'out';
     item.dataset.ongoing = 'true';
-    item.innerHTML = `<span>OUT · in progress</span><span>${formatTime(state.metrics.ongoingEnd)}</span>`;
+    item.innerHTML = `<span>Expected OUT</span><span>${formatTime(state.metrics.expectedOut)}</span>`;
     els.timelineList.appendChild(item);
+  }
+}
+
+function renderHistorySelect() {
+  if (!els.historySelect) return;
+  const active = state.metrics?.dayKey || '';
+  const select = els.historySelect;
+  const prevValue = select.value;
+  select.innerHTML = '<option value="">History</option>';
+  state.historyList.forEach((record) => {
+    const option = document.createElement('option');
+    option.value = record.dayKey;
+    option.textContent = record.dayLabel;
+    select.appendChild(option);
+  });
+  if (active) {
+    select.value = active;
+  } else if (prevValue && state.historyMap[prevValue]) {
+    select.value = prevValue;
+  } else {
+    select.value = '';
   }
 }
 
@@ -381,7 +448,12 @@ function copySummary() {
     pushInfo('Nothing to copy yet.');
     return;
   }
-  const text = `NineToFive — ${state.metrics.dayLabel}\nWorked: ${formatDuration(state.metrics.totalWorked)}\nBreaks: ${formatDuration(state.metrics.totalBreak)}\n${state.metrics.breakBadge.label}\nStatus: ${state.metrics.ongoing ? 'Shift in progress' : 'Complete'}`;
+  const workInsight = describeWorkDelta(state.metrics);
+  const breakInsight = describeBreakDelta(state.metrics);
+  const expectedLine = state.metrics.ongoing && state.metrics.expectedOut
+    ? `Expected out: ${formatDateTime(state.metrics.expectedOut)}`
+    : 'Shift complete';
+  const text = `NineToFive — ${state.metrics.dayLabel}\nWorked: ${formatDuration(state.metrics.totalWorked)}\nBreaks: ${formatDuration(state.metrics.totalBreak)}\n${workInsight.label}\n${breakInsight.label}\n${expectedLine}`;
   navigator.clipboard
     .writeText(text)
     .then(() => pushInfo('Summary copied.'))
@@ -396,7 +468,93 @@ function resetApp() {
   state.warnings = [];
   state.hints = ['Cleared. Ready for new data.'];
   els.logInput.value = '';
+  els.historySelect.value = '';
   renderAll();
+}
+
+function describeWorkDelta(metrics) {
+  const diff = metrics.workDeltaMs;
+  if (diff > 0) {
+    const label = `Work left: ${formatDiff(diff)}`;
+    const detail = `${label}. Apply for swipe correction in the SpineHR portal to complete the shift.`;
+    return { label, detail, metaShort: 'Under 8h so far', tone: 'warning' };
+  }
+  if (diff < 0) {
+    const extra = formatDiff(Math.abs(diff));
+    return {
+      label: `Extra work: ${extra}`,
+      detail: `Extra work: ${extra}. Huge effort — thank you for grinding today!`,
+      metaShort: 'Beyond 8h',
+      tone: 'info',
+    };
+  }
+  return {
+    label: 'Exactly 8h logged',
+    detail: "Exactly eight hours of work. Chef's kiss balance.",
+    metaShort: 'Target met',
+    tone: 'info',
+  };
+}
+
+function describeBreakDelta(metrics) {
+  const diff = metrics.breakDeltaMs;
+  if (diff > 0) {
+    const left = formatDiff(diff);
+    const detail = metrics.ongoing
+      ? `Break left: ${left}. Take a breather soon.`
+      : `Break left: ${left}. You worked a little extra today!`;
+    return { label: `Break left: ${left}`, detail, metaShort: 'Under 60m', tone: 'info' };
+  }
+  if (diff < 0) {
+    const extra = formatDiff(Math.abs(diff));
+    return {
+      label: `Extra break: ${extra}`,
+      detail: `Extra break: ${extra}. God is watching.`,
+      metaShort: 'Over 60m',
+      tone: 'warning',
+    };
+  }
+  return {
+    label: 'Break ≈ 60m',
+    detail: 'Perfectly timed break — hydration masterclass.',
+    metaShort: 'Spot on',
+    tone: 'info',
+  };
+}
+
+function createChip(text, tone = 'info') {
+  const chip = document.createElement('span');
+  chip.className = 'status-chip';
+  chip.dataset.tone = tone;
+  chip.textContent = text;
+  return chip;
+}
+
+function loadHistory() {
+  try {
+    const stored = localStorage.getItem(HISTORY_KEY);
+    state.historyMap = stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    state.historyMap = {};
+  }
+  state.historyList = Object.values(state.historyMap).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+}
+
+function persistHistory(dayKey, dayLabel, raw) {
+  if (!dayKey) return;
+  const record = {
+    dayKey,
+    dayLabel,
+    raw,
+    savedAt: new Date().toISOString(),
+  };
+  state.historyMap = { ...state.historyMap, [dayKey]: record };
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(state.historyMap));
+  } catch (error) {
+    // ignore storage issues
+  }
+  state.historyList = Object.values(state.historyMap).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
 }
 
 function pushInfo(message) {
@@ -426,8 +584,28 @@ function formatDuration(ms) {
   return `${hours}h ${minutes}m`;
 }
 
+function formatDiff(ms) {
+  const minutesTotal = Math.max(0, Math.round(ms / (60 * 1000)));
+  const hours = Math.floor(minutesTotal / 60);
+  const minutes = minutesTotal % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (!parts.length) parts.push('0m');
+  return parts.join(' ');
+}
+
 function formatTime(date) {
   return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatDateTime(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
