@@ -180,14 +180,28 @@ button.chip,
     position: absolute;
     right: 16px;
     top: 50%;
+    width: 18px;
+    height: 18px;
     transform: translateY(-50%);
-    font-size: 0.8rem;
-    color: var(--accent);
-    transition: transform 0.2s ease;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.history-button[aria-expanded="true"] .chevron {
-    transform: translateY(-50%) rotate(180deg);
+.history-button .chevron::before {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-right: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
+    transform: rotate(45deg);
+    transition: transform 0.26s ease;
+}
+
+.history-button[aria-expanded="true"] .chevron::before {
+    transform: rotate(-135deg);
 }
 
 .history-control[data-open="true"] .history-button {
