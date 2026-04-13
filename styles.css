@@ -108,6 +108,25 @@ button.chip,
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  align-items: flex-end;
+}
+
+.history-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.history-control select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 6px 10px;
+  min-width: 140px;
+  cursor: pointer;
 }
 
 .app-layout {
@@ -179,6 +198,16 @@ textarea:focus {
   margin-bottom: 20px;
 }
 
+.summary-message {
+  border-radius: calc(var(--radius) - 10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 18px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
 .metric-card {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -205,6 +234,16 @@ textarea:focus {
 .metric-card small {
   color: var(--text-muted);
   font-size: 0.75rem;
+}
+
+.expected-row {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
 }
 
 .metric-card::after {
